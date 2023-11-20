@@ -11,8 +11,8 @@ font_size = [25, 60]
 underline_rate = 0.01
 strong_rate = 0.05
 oblique_rate = 0.02
-font_dir = '/reserve/qianyu/datasets/fonts/english_ttf'
-standard_font_path = '/reserve/qianyu/datasets/fonts/english_ttf/arial.ttf'
+font_dir = '../data/Latin/fonts/all'
+standard_font_path = '../data/Latin/fonts/all/Lato-Regular.ttf'
 
 # text
 text_filepath = 'data/texts.txt'
@@ -20,7 +20,7 @@ capitalize_rate = 0.1
 uppercase_rate = 0.04
 
 # background
-bg_filepath = '/reserve/qianyu/datasets/srnet_bg/labels.txt'
+bg_filepath = '../data/bg_img.txt'
 
 ## background augment
 brightness_rate = 0.8

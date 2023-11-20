@@ -6,66 +6,65 @@ Licensed under the GPL License (see LICENSE for details)
 Written by Yu Qian
 """
 
-import os
-import cv2
-import math
-import numpy as np
-import pygame
-from pygame import freetype
-import random
 import multiprocessing
-import queue
-import Augmentor
+import os
+import random
 
-from . import render_text_mask
-from . import colorize
-from . import skeletonization
-from . import render_standard_text
-from . import data_cfg
+import Augmentor
+import cv2
+import numpy as np
+from loguru import logger
+from pygame import freetype
+
+from . import (
+    colorize,
+    data_cfg,
+    render_standard_text,
+    render_text_mask,
+    skeletonization,
+)
+
 
 class datagen():
-
     def __init__(self):
-        
         freetype.init()
         cur_file_path = os.path.dirname(__file__)
-        
+
         font_dir = os.path.join(cur_file_path, data_cfg.font_dir)
         self.font_list = os.listdir(font_dir)
         self.font_list = [os.path.join(font_dir, font_name) for font_name in self.font_list]
         self.standard_font_path = os.path.join(cur_file_path, data_cfg.standard_font_path)
-        
+
         color_filepath = os.path.join(cur_file_path, data_cfg.color_filepath)
         self.colorsRGB, self.colorsLAB = colorize.get_color_matrix(color_filepath)
-        
+
         text_filepath = os.path.join(cur_file_path, data_cfg.text_filepath)
         self.text_list = open(text_filepath, 'r').readlines()
         self.text_list = [text.strip() for text in self.text_list]
-        
+
         bg_filepath = os.path.join(cur_file_path, data_cfg.bg_filepath)
         self.bg_list = open(bg_filepath, 'r').readlines()
         self.bg_list = [img_path.strip() for img_path in self.bg_list]
-        
+
         self.surf_augmentor = Augmentor.DataPipeline(None)
         self.surf_augmentor.random_distortion(probability = data_cfg.elastic_rate,
             grid_width = data_cfg.elastic_grid_size, grid_height = data_cfg.elastic_grid_size,
             magnitude = data_cfg.elastic_magnitude)
-        
+
         self.bg_augmentor = Augmentor.DataPipeline(None)
-        self.bg_augmentor.random_brightness(probability = data_cfg.brightness_rate, 
+        self.bg_augmentor.random_brightness(probability = data_cfg.brightness_rate,
             min_factor = data_cfg.brightness_min, max_factor = data_cfg.brightness_max)
-        self.bg_augmentor.random_color(probability = data_cfg.color_rate, 
+        self.bg_augmentor.random_color(probability = data_cfg.color_rate,
             min_factor = data_cfg.color_min, max_factor = data_cfg.color_max)
-        self.bg_augmentor.random_contrast(probability = data_cfg.contrast_rate, 
+        self.bg_augmentor.random_contrast(probability = data_cfg.contrast_rate,
             min_factor = data_cfg.contrast_min, max_factor = data_cfg.contrast_max)
 
     def gen_srnet_data_with_background(self):
-        
         while True:
             # choose font, text and bg
             font = np.random.choice(self.font_list)
             text1, text2 = np.random.choice(self.text_list), np.random.choice(self.text_list)
-            
+
             upper_rand = np.random.rand()
             if upper_rand < data_cfg.capitalize_rate + data_cfg.uppercase_rate:
                 text1, text2 = text1.capitalize(), text2.capitalize()
@@ -87,7 +86,7 @@ class datagen():
             # render text to surf
             param = {
                         'is_curve': np.random.rand() < data_cfg.is_curve_rate,
-                        'curve_rate': data_cfg.curve_rate_param[0] * np.random.randn() 
+                        'curve_rate': data_cfg.curve_rate_param[0] * np.random.randn()
                                       + data_cfg.curve_rate_param[1],
                         'curve_center': np.random.randint(0, len(text1))
                     }
@@ -122,12 +121,12 @@ class datagen():
             x = np.random.randint(0, bg_w - surf_w + 1)
             y = np.random.randint(0, bg_h - surf_h + 1)
             t_b = bg[y:y+surf_h, x:x+surf_w, :]
-            
+
             # augment surf
             surfs = [[surf1, surf2]]
             self.surf_augmentor.augmentor_images = surfs
             surf1, surf2 = self.surf_augmentor.sample(1)[0]
-            
+
             # bg augment
             bgs = [[t_b]]
             self.bg_augmentor.augmentor_images = bgs
@@ -161,34 +160,31 @@ class datagen():
                     }
             _, i_s = colorize.colorize(surf1, t_b, fg_col, bg_col, self.colorsRGB, self.colorsLAB, min_h, param)
             t_t, t_f = colorize.colorize(surf2, t_b, fg_col, bg_col, self.colorsRGB, self.colorsLAB, min_h, param)
-            
+
             # skeletonization
             t_sk = skeletonization.skeletonization(surf2, 127)
             break
-   
+
         return [i_t, i_s, t_sk, t_t, t_b, t_f, surf2]
 
-def enqueue_data(queue, capacity):  
-    
+def enqueue_data(queue, capacity):
     np.random.seed()
     gen = datagen()
     while True:
         try:
             data = gen.gen_srnet_data_with_background()
         except Exception as e:
-            pass
+            logger.exception(e)
         if queue.qsize() < capacity:
             queue.put(data)
 
 class multiprocess_datagen():
-    
     def __init__(self, process_num, data_capacity):
-        
+
         self.process_num = process_num
         self.data_capacity = data_capacity
-            
+
     def multiprocess_runningqueue(self):
-        
         manager = multiprocessing.Manager()
         self.queue = manager.Queue()
         self.pool = multiprocessing.Pool(processes = self.process_num)
@@ -197,29 +193,21 @@ class multiprocess_datagen():
             p = self.pool.apply_async(enqueue_data, args = (self.queue, self.data_capacity))
             self.processes.append(p)
         self.pool.close()
-        
+
     def dequeue_data(self):
-        
         while self.queue.empty():
             pass
         data = self.queue.get()
         return data
-        '''
-        data = None
-        if not self.queue.empty():
-            data = self.queue.get()
-        return data
-        '''
 
     def dequeue_batch(self, batch_size, data_shape):
-        
         while self.queue.qsize() < batch_size:
             pass
 
         i_t_batch, i_s_batch = [], []
         t_sk_batch, t_t_batch, t_b_batch, t_f_batch = [], [], [], []
         mask_t_batch = []
-        
+
         for i in range(batch_size):
             i_t, i_s, t_sk, t_t, t_b, t_f, mask_t = self.dequeue_data()
             i_t_batch.append(i_t)
@@ -229,18 +217,18 @@ class multiprocess_datagen():
             t_b_batch.append(t_b)
             t_f_batch.append(t_f)
             mask_t_batch.append(mask_t)
-        
+
         w_sum = 0
         for t_b in t_b_batch:
             h, w = t_b.shape[:2]
             scale_ratio = data_shape[0] / h
             w_sum += int(w * scale_ratio)
-        
+
         to_h = data_shape[0]
         to_w = w_sum // batch_size
         to_w = int(round(to_w / 8)) * 8
         to_size = (to_w, to_h) # w first for cv2
-        for i in range(batch_size): 
+        for i in range(batch_size):
             i_t_batch[i] = cv2.resize(i_t_batch[i], to_size)
             i_s_batch[i] = cv2.resize(i_s_batch[i], to_size)
             t_sk_batch[i] = cv2.resize(t_sk_batch[i], to_size, interpolation=cv2.INTER_NEAREST)
@@ -258,21 +246,21 @@ class multiprocess_datagen():
         t_b_batch = np.stack(t_b_batch)
         t_f_batch = np.stack(t_f_batch)
         mask_t_batch = np.expand_dims(np.stack(mask_t_batch), axis = -1)
-        
-        i_t_batch = i_t_batch.astype(np.float32) / 127.5 - 1. 
-        i_s_batch = i_s_batch.astype(np.float32) / 127.5 - 1. 
-        t_sk_batch = t_sk_batch.astype(np.float32) / 255. 
-        t_t_batch = t_t_batch.astype(np.float32) / 127.5 - 1. 
-        t_b_batch = t_b_batch.astype(np.float32) / 127.5 - 1. 
+
+        i_t_batch = i_t_batch.astype(np.float32) / 127.5 - 1.
+        i_s_batch = i_s_batch.astype(np.float32) / 127.5 - 1.
+        t_sk_batch = t_sk_batch.astype(np.float32) / 255.
+        t_t_batch = t_t_batch.astype(np.float32) / 127.5 - 1.
+        t_b_batch = t_b_batch.astype(np.float32) / 127.5 - 1.
         t_f_batch = t_f_batch.astype(np.float32) / 127.5 - 1.
         mask_t_batch = mask_t_batch.astype(np.float32) / 255.
-        
+
         return [i_t_batch, i_s_batch, t_sk_batch, t_t_batch, t_b_batch, t_f_batch, mask_t_batch]
-    
+
     def get_queue_size(self):
-        
+
         return self.queue.qsize()
-    
+
     def terminate_pool(self):
-        
+
         self.pool.terminate()

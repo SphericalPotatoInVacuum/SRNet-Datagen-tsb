@@ -6,16 +6,18 @@ Written by Yu Qian
 """
 
 import os
+
 import cv2
+
 import cfg
-from Synthtext.gen import datagen, multiprocess_datagen
+from Synthtext.gen import multiprocess_datagen
+
 
 def makedirs(path):
     if not os.path.exists(path):
         os.makedirs(path)
 
 def main():
-    
     i_t_dir = os.path.join(cfg.data_dir, cfg.i_t_dir)
     i_s_dir = os.path.join(cfg.data_dir, cfg.i_s_dir)
     t_sk_dir = os.path.join(cfg.data_dir, cfg.t_sk_dir)
@@ -23,7 +25,7 @@ def main():
     t_b_dir = os.path.join(cfg.data_dir, cfg.t_b_dir)
     t_f_dir = os.path.join(cfg.data_dir, cfg.t_f_dir)
     mask_t_dir = os.path.join(cfg.data_dir, cfg.mask_t_dir)
-    
+
     makedirs(i_t_dir)
     makedirs(i_s_dir)
     makedirs(t_sk_dir)
