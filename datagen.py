@@ -5,57 +5,39 @@ Licensed under the GPL License (see LICENSE for details)
 Written by Yu Qian
 """
 
-import os
+import multiprocessing as mp
+import random
+from functools import partial
+from pathlib import Path
 
-import cv2
+from loguru import logger
+from tqdm import tqdm
 
 import cfg
-from Synthtext.gen import multiprocess_datagen
+from Synthtext.gen import Datagen, RetryableError
 
 
-def makedirs(path):
-    if not os.path.exists(path):
-        os.makedirs(path)
+def datagen_star(func, args):
+    while True:
+        try:
+            func(*args)
+            break
+        except RetryableError as e:
+            continue
+        except Exception as e:
+            logger.exception(e)
+            raise e
+
 
 def main():
-    i_t_dir = os.path.join(cfg.data_dir, cfg.i_t_dir)
-    i_s_dir = os.path.join(cfg.data_dir, cfg.i_s_dir)
-    t_sk_dir = os.path.join(cfg.data_dir, cfg.t_sk_dir)
-    t_t_dir = os.path.join(cfg.data_dir, cfg.t_t_dir)
-    t_b_dir = os.path.join(cfg.data_dir, cfg.t_b_dir)
-    t_f_dir = os.path.join(cfg.data_dir, cfg.t_f_dir)
-    mask_t_dir = os.path.join(cfg.data_dir, cfg.mask_t_dir)
-
-    makedirs(i_t_dir)
-    makedirs(i_s_dir)
-    makedirs(t_sk_dir)
-    makedirs(t_t_dir)
-    makedirs(t_b_dir)
-    makedirs(t_f_dir)
-    makedirs(mask_t_dir)
-
-    mp_gen = multiprocess_datagen(cfg.process_num, cfg.data_capacity)
-    mp_gen.multiprocess_runningqueue()
-    digit_num = len(str(cfg.sample_num)) - 1
-    for idx in range(cfg.sample_num):
-        print ("Generating step {:>6d} / {:>6d}".format(idx + 1, cfg.sample_num))
-        i_t, i_s, t_sk, t_t, t_b, t_f, mask_t = mp_gen.dequeue_data()
-        i_t_path = os.path.join(i_t_dir, str(idx).zfill(digit_num) + '.png')
-        i_s_path = os.path.join(i_s_dir, str(idx).zfill(digit_num) + '.png')
-        t_sk_path = os.path.join(t_sk_dir, str(idx).zfill(digit_num) + '.png')
-        t_t_path = os.path.join(t_t_dir, str(idx).zfill(digit_num) + '.png')
-        t_b_path = os.path.join(t_b_dir, str(idx).zfill(digit_num) + '.png')
-        t_f_path = os.path.join(t_f_dir, str(idx).zfill(digit_num) + '.png')
-        mask_t_path = os.path.join(cfg.data_dir, cfg.mask_t_dir, str(idx).zfill(digit_num) + '.png')
-        cv2.imwrite(i_t_path, i_t, [int(cv2.IMWRITE_PNG_COMPRESSION), 0])
-        cv2.imwrite(i_s_path, i_s, [int(cv2.IMWRITE_PNG_COMPRESSION), 0])
-        cv2.imwrite(t_sk_path, t_sk, [int(cv2.IMWRITE_PNG_COMPRESSION), 0])
-        cv2.imwrite(t_t_path, t_t, [int(cv2.IMWRITE_PNG_COMPRESSION), 0])
-        cv2.imwrite(t_b_path, t_b, [int(cv2.IMWRITE_PNG_COMPRESSION), 0])
-        cv2.imwrite(t_f_path, t_f, [int(cv2.IMWRITE_PNG_COMPRESSION), 0])
-        cv2.imwrite(mask_t_path, mask_t, [int(cv2.IMWRITE_PNG_COMPRESSION), 0])
-
-    mp_gen.terminate_pool()
+    datagen = Datagen(Path(cfg.data_dir))
+    func = partial(datagen_star, datagen.gen_srnet_data_with_background)
+    data = [(font, word, idx)
+            for font in datagen.font_list
+            for word in random.choices(datagen.text_list, k=cfg.words_per_font)
+            for idx in range(cfg.bg_per_word)]
+    with mp.Pool(cfg.process_num) as pool:
+        list(tqdm(pool.imap_unordered(func, data, chunksize=64), total=len(data)))
 
 if __name__ == '__main__':
     main()
