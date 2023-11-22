@@ -11,8 +11,8 @@ font_size = [25, 60]
 underline_rate = 0.01
 strong_rate = 0.05
 oblique_rate = 0.02
-font_dir = '../data/Latin/fonts/all'
-standard_font_path = '../data/Latin/fonts/all/Lato-Regular.ttf'
+font_dir = '../data/fonts'
+standard_font_path = '../data/fonts/Lato-Regular.ttf'
 
 # text
 text_filepath = 'data/texts.txt'
