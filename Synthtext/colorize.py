@@ -5,19 +5,12 @@ Original project: https://github.com/ankush-me/SynthText
 Author: Ankush Gupta
 Date: 2015
 """
+import pickle as cp
+
 import cv2
 import numpy as np
-import copy
-import matplotlib.pyplot as plt
-import scipy.interpolate as si
-import scipy.ndimage as scim
 import scipy.ndimage.interpolation as sii
-import os
-import os.path as osp
-import pickle as cp
 from PIL import Image
-import random
-from . import poisson_reconstruct
 
 
 class Layer(object):
@@ -48,18 +41,15 @@ class Layer(object):
 class FontColor(object):
 
     def __init__(self, colorsRGB, colorsLAB):
-       
         self.colorsRGB = colorsRGB
         self.colorsLAB = colorsLAB
         self.ncol = colorsRGB.shape[0]
 
     def sample_normal(self, col_mean, col_std):
-        
         col_sample = col_mean + col_std * np.random.randn()
         return np.clip(col_sample, 0, 255).astype(np.uint8)
 
     def sample_from_data(self, bg_mat):
-        
         bg_orig = bg_mat.copy()
         bg_mat = cv2.cvtColor(bg_mat, cv2.COLOR_RGB2Lab)
         bg_mat = np.reshape(bg_mat, (np.prod(bg_mat.shape[:2]),3))
@@ -67,7 +57,7 @@ class FontColor(object):
 
         norms = np.linalg.norm(self.colorsLAB - bg_mean[None,:], axis = 1)
         # choose a random color amongst the top 3 closest matches:
-        #nn = np.random.choice(np.argsort(norms)[:3]) 
+        #nn = np.random.choice(np.argsort(norms)[:3])
         nn = np.argmin(norms)
 
         ## nearest neighbour color:
@@ -84,26 +74,22 @@ class FontColor(object):
             return (col1, col2)
 
     def mean_color(self, arr):
-        
         col = cv2.cvtColor(arr, cv2.COLOR_RGB2HSV)
         col = np.reshape(col, (np.prod(col.shape[:2]),3))
         col = np.mean(col, axis = 0).astype(np.uint8)
         return np.squeeze(cv2.cvtColor(col[None,None,:], cv2.COLOR_HSV2RGB))
 
     def invert(self, rgb):
-        
         rgb = 127 + rgb
         return rgb
 
     def complement(self, rgb_color):
-        
         col_hsv = np.squeeze(cv2.cvtColor(rgb_color[None,None,:], cv2.COLOR_RGB2HSV))
         col_hsv[0] = col_hsv[0] + 128 #uint8 mods to 255
         col_comp = np.squeeze(cv2.cvtColor(col_hsv[None,None,:], cv2.COLOR_HSV2RGB))
         return col_comp
 
     def triangle_color(self, col1, col2):
-        
         col1, col2 = np.array(col1), np.array(col2)
         col1 = np.squeeze(cv2.cvtColor(col1[None,None,:], cv2.COLOR_RGB2HSV))
         col2 = np.squeeze(cv2.cvtColor(col2[None,None,:], cv2.COLOR_RGB2HSV))
@@ -115,7 +101,6 @@ class FontColor(object):
         return np.squeeze(cv2.cvtColor(col1[None,None,:],cv2.COLOR_HSV2RGB))
 
     def change_value(self, col_rgb, v_std=50):
-        
         col = np.squeeze(cv2.cvtColor(col_rgb[None,None,:], cv2.COLOR_RGB2HSV))
         x = col[2]
         vs = np.linspace(0,1)
@@ -131,7 +116,6 @@ class Colorize(object):
         pass
 
     def drop_shadow(self, alpha, theta, shift, size, op=0.80):
-        
         if size % 2 == 0:
             size -= 1
             size = max(1, size)
@@ -141,56 +125,37 @@ class Colorize(object):
         return shadow.astype(np.uint8)
 
     def border(self, alpha, size, kernel_type = 'RECT'):
-        
         kdict = {'RECT':cv2.MORPH_RECT, 'ELLIPSE':cv2.MORPH_ELLIPSE,
                  'CROSS':cv2.MORPH_CROSS}
         kernel = cv2.getStructuringElement(kdict[kernel_type], (size, size))
         border = cv2.dilate(alpha, kernel, iterations = 1) # - alpha
         return border
 
-    def blend(self, cf, cb, mode = 'normal'):
-        
-        return cf
-
-    def merge_two(self, fore, back, blend_type = None):
-        
+    def merge_two(self, fore, back):
         a_f = fore.alpha / 255.0
         a_b = back.alpha / 255.0
         c_f = fore.color
         c_b = back.color
 
-        a_r = a_f + a_b - a_f*a_b
-        if blend_type != None:
-            c_blend = self.blend(c_f, c_b, blend_type)
-            c_r = (((1-a_f)*a_b)[:,:,None] * c_b
-                    + ((1-a_b)*a_f)[:,:,None] * c_f
-                    + (a_f*a_b)[:,:,None] * c_blend)
-        else:
-            c_r = (((1-a_f)*a_b)[:,:,None] * c_b
-                    + a_f[:,:,None]*c_f)
+        # Blending
+        blended_color = ((1 - a_f) * a_b)[:, :, None] * c_b + a_f[:, :, None] * c_f
 
-        return Layer((255 * a_r).astype(np.uint8), c_r.astype(np.uint8))
+        # Calculate the resulting alpha channel
+        a_r = a_f + a_b * (1 - a_f)
 
-    def merge_down(self, layers, blends = None):
-        
+        return Layer((255 * a_r).astype(np.uint8), blended_color.astype(np.uint8))
+
+    def merge_down(self, layers):
         nlayers = len(layers)
-        if nlayers > 1:
-            [n, m] = layers[0].alpha.shape[:2]
-            out_layer = layers[-1]
-            for i in range(-2, -nlayers-1, -1):
-                blend = None
-                if blends is not None:
-                    blend = blends[i+1]
-                    out_layer = self.merge_two(fore = layers[i], back = out_layer, blend_type = blend)
-            return out_layer
-        else:
-            return layers[0]
+        out_layer = layers[-1]
+        for i in range(-2, -nlayers-1, -1):
+            out_layer = self.merge_two(fore = layers[i], back = out_layer)
+        return out_layer
 
     def resize_im(self, im, osize):
         return np.array(Image.fromarray(im).resize(osize[::-1], Image.BICUBIC))
 
     def color_border(self, col_text, col_bg, bordar_color_type, bordar_color_idx, bordar_color_noise):
-        
         choice = np.random.choice(3)
 
         col_text = cv2.cvtColor(col_text, cv2.COLOR_RGB2HSV)
@@ -222,37 +187,33 @@ class Colorize(object):
             col_text = np.squeeze(cv2.cvtColor(col_text[None,None,:], cv2.COLOR_HSV2RGB))
             col_text = self.font_color.triangle_color(col_text, col_bg)
 
-        # now change the VALUE channel:        
+        # now change the VALUE channel:
         col_text = np.squeeze(cv2.cvtColor(col_text[None,None,:], cv2.COLOR_RGB2HSV))
         col_text[2] = get_sample(col_text[2]) # value
         return np.squeeze(cv2.cvtColor(col_text[None,None,:], cv2.COLOR_HSV2RGB))
 
     def color_text(self, text_arr, bg_arr):
-        
         fg_col,bg_col = self.font_color.sample_from_data(bg_arr)
         return Layer(alpha = text_arr, color = fg_col), fg_col, bg_col
 
     def color(self, text_arr, bg_arr, fg_col, bg_col, colorsRGB, colorsLAB, min_h, param):
 
-        self.font_color = FontColor(colorsRGB, colorsLAB)        
+        self.font_color = FontColor(colorsRGB, colorsLAB)
 
         l_text = Layer(alpha = text_arr, color = fg_col)
-        bg_col = np.mean(np.mean(bg_arr, axis = 0), axis = 0)
-        l_bg = Layer(alpha = 255 * np.ones_like(text_arr, dtype = np.uint8), color = bg_col)
-    
+        l_bg = Layer(alpha = 255 * np.ones_like(text_arr, dtype = np.uint8), color = bg_arr)
+
         layers = [l_text]
-        blends = []
 
         # add border:
         if param['is_border']:
             if min_h <= 15 : bsz = 1
             elif 15 < min_h < 30: bsz = 3
             else: bsz = 5
-            
+
             border_a = self.border(l_text.alpha, size = bsz)
             l_border = Layer(border_a, color = param['bordar_color'])
             layers.append(l_border)
-            blends.append('normal')
 
         # add shadow:
         if param['is_shadow']:
@@ -275,27 +236,17 @@ class Colorize(object):
             shadow = self.drop_shadow(l_text.alpha, theta, shift, 3 * bsz, op)
             l_shadow = Layer(shadow, 0)
             layers.append(l_shadow)
-            blends.append('normal')
 
         gray_layers = layers.copy()
-        gray_blends = blends.copy()
         l_bg_gray = Layer(alpha=255*np.ones_like(text_arr, dtype = np.uint8), color = (127, 127, 127))
         gray_layers.append(l_bg_gray)
-        gray_blends.append('normal')
-        l_normal_gray = self.merge_down(gray_layers, gray_blends)
+        l_normal_gray = self.merge_down(gray_layers)
 
-        l_bg = Layer(alpha = 255 * np.ones_like(text_arr, dtype = np.uint8), color = bg_col)
-        layers.append(l_bg)
-        blends.append('normal')
-        l_normal = self.merge_down(layers, blends)
-
-        # now do poisson image editing:
         l_bg = Layer(alpha = 255 * np.ones_like(text_arr, dtype = np.uint8), color = bg_arr)
+        layers.append(l_bg)
+        l_normal = self.merge_down(layers)
 
-        # image blit
-        l_out = poisson_reconstruct.poisson_blit_images(l_normal.color.copy(), l_bg.color.copy())
-
-        return l_normal_gray.color, l_out
+        return l_normal_gray.color, l_normal.color
 
 def get_color_matrix(col_file):
 
@@ -308,7 +259,7 @@ def get_color_matrix(col_file):
 
 def get_font_color(colorsRGB, colorsLAB, bg_arr):
 
-    font_color = FontColor(colorsRGB, colorsLAB)        
+    font_color = FontColor(colorsRGB, colorsLAB)
     return font_color.sample_from_data(bg_arr)
 
 def colorize(surf, bg, fg_col, bg_col, colorsRGB, colorsLAB, min_h, param):

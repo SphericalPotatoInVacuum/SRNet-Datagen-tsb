@@ -53,8 +53,8 @@ elastic_magnitude = 2
 ## colorize
 padding_ud = [0, 10]
 padding_lr = [0, 20]
-is_border_rate = 0.02
-is_shadow_rate = 0.02
+is_border_rate = 0.1
+is_shadow_rate = 0.1
 shadow_angle_degree = [1, 3, 5, 7] # shift for shadow_angle_param
 shadow_angle_param = [0.5, None] # scale, shift for np.random.randn()
 shadow_shift_param = np.array([[0, 1, 3], [2, 7, 15]], dtype = np.float32) # scale, shift for np.random.randn()
