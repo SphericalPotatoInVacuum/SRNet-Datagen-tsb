@@ -26,7 +26,7 @@ def datagen_star(func, args):
             continue
         except Exception as e:
             logger.exception(e)
-            raise e
+            break
 
 
 def main():
