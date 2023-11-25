@@ -120,10 +120,8 @@ class Datagen:
         perspect = data_cfg.perspect_param[0] * np.random.randn(2) + data_cfg.perspect_param[1]
         try:
             surf = render_text_mask.perspective(surf, rotate, zoom, shear, perspect, padding) # w first
-        except ValueError as e:
-            raise RetryableError("Perspective failed")
         except Exception as e:
-            raise e
+            raise RetryableError(f"Perspective failed: {e}")
 
         # choose a background
         surf_h, surf_w = surf.shape[:2]
