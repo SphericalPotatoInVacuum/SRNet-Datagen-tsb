@@ -22,7 +22,7 @@ def datagen_star(func, args):
         try:
             func(*args)
             break
-        except RetryableError as e:
+        except RetryableError:
             continue
         except Exception as e:
             logger.exception(e)
@@ -31,13 +31,11 @@ def datagen_star(func, args):
 
 def main():
     datagen = Datagen(Path(cfg.data_dir))
-    func = partial(datagen_star, datagen.gen_srnet_data_with_background)
-    data = [(font, word, idx)
-            for font in datagen.font_list
-            for word in random.choices(datagen.text_list, k=cfg.words_per_font)
-            for idx in range(cfg.bg_per_word)]
+    data = [(random.choices(datagen.text_list, k=cfg.images_per_font),) for _ in range(cfg.num_fonts)]
+    func = partial(datagen_star, datagen.render_style)
     with mp.Pool(cfg.process_num) as pool:
         list(tqdm(pool.imap_unordered(func, data, chunksize=64), total=len(data)))
+
 
 if __name__ == '__main__':
     main()
