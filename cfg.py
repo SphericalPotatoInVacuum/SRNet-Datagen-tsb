@@ -9,8 +9,8 @@ Written by Yu Qian
 data_dir = './output/'
 
 # sample
-words_per_font = 10
-bg_per_word = 10
+num_fonts = 4096
+images_per_font = 12048
 
 # multiprocess
 process_num = 32
