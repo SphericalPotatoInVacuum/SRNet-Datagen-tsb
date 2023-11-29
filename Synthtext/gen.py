@@ -16,6 +16,7 @@ from uuid import uuid4
 import Augmentor
 import cv2
 import numpy as np
+import structlog
 from pygame import freetype
 
 from . import colorize, data_cfg, render_text_mask
@@ -75,6 +76,8 @@ class Style:
 
 class Datagen:
     def __init__(self, save_path: Path):
+        self.logger: structlog.BoundLogger = structlog.get_logger()
+
         self.save_path = save_path
 
         freetype.init()
@@ -120,8 +123,11 @@ class Datagen:
             min_factor=data_cfg.contrast_min,
             max_factor=data_cfg.contrast_max,
         )
+        self.logger.info("Initialized datagen")
 
     def render_word(self, style: Style, word: str):
+        log: structlog.stdlib.BoundLogger = self.logger.bind(word=word, style=style.name)
+
         mask_param = style.mask_param.__dict__.copy()
         mask_param['curve_center'] = int(np.round(style.mask_param.curve_center * len(word)))
 
@@ -136,6 +142,7 @@ class Datagen:
                 style.padding,
             )  # w first
         except Exception as e:
+            log.warn("Perspective failed", error=e)
             raise RetryableError(f"Perspective failed: {e}") from e
 
         # choose a background
@@ -153,6 +160,8 @@ class Datagen:
 
         save_path: Path = self.save_path / style.name / f'{word.lower()}.png'
         cv2.imwrite(str(save_path), i_s, [int(cv2.IMWRITE_PNG_COMPRESSION), 0])
+
+        log.info("Rendered word")
 
         return
 
@@ -221,22 +230,24 @@ class Datagen:
         )
 
     def gen_bg(self, width: int, height: int):
+        n = 0
         while True:
+            n += 1
             bg = cv2.imread(str(random.choice(self.bg_list)))
             if bg is None:
                 continue
             bg_h, bg_w = bg.shape[:2]
             if width <= bg_w and height <= bg_h:
                 break
-
         x = np.random.randint(0, bg_w - width + 1)
         y = np.random.randint(0, bg_h - height + 1)
         t_b = bg[y:y + height, x:x + width, :]
 
         return t_b
 
-    def render_style(self, words: list[str]):
+    def render_style(self, k):
         style = self.gen_style()
         self.save_path.joinpath(style.name).mkdir(parents=True, exist_ok=True)
-        for word in words:
+        for _ in range(k):
+            word = random.choice(self.text_list)
             self.render_word(style, word)
